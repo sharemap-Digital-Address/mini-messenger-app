@@ -58,7 +58,7 @@
             border: 1px solid #334155;
             border-radius: 6px;
             padding: 8px;
-            max-height: 110px;
+            max-height: 120px;
             overflow-y: auto;
             margin-bottom: 12px;
         }
@@ -103,11 +103,11 @@
 
         <hr style="border:0; border-top:1px solid #334155; margin:12px 0;">
 
-        <!-- Customer Inbox List (Hindi na kailangan mag-type ng PSID!) -->
+        <!-- Customer Inbox List (Direktang hihilahin kay Meta) -->
         <div class="form-group">
-            <label>📥 Customer Inbox (Piliin ang nag-message):</label>
+            <label>📥 Customer Inbox (Galing kay Meta Graph API):</label>
             <div id="inboxList" class="inbox-box">
-                <span style="font-size:12px; color:#64748b;">Wala pang pumapasok na customer... Mag-chat ka muna sa Page.</span>
+                <span style="font-size:12px; color:#64748b;">Mag-login muna para ma-load ang mga nag-chat...</span>
             </div>
             <button class="btn btn-secondary" onclick="loadCustomerInbox()">🔄 Refresh Inbox</button>
         </div>
@@ -148,7 +148,7 @@
             js = d.createElement(s); js.id = id;
             js.src = "https://connect.facebook.net/en_US/sdk.js";
             fjs.parentNode.insertBefore(js, fjs);
-        }(script = document, 'script', 'facebook-jssdk'));
+        }(document, 'script', 'facebook-jssdk'));
 
         function logToScreen(text) {
             const box = document.getElementById("logBox");
@@ -165,9 +165,11 @@
                     FB.api('/me/accounts', function(accountsResponse) {
                         if (accountsResponse && accountsResponse.data && accountsResponse.data.length > 0) {
                             const page = accountsResponse.data[0];
+                            // Itago ang Page ID para hindi maging participant ang page mismo sa inbox list
+                            window.activePageId = page.id; 
                             document.getElementById("pageTokenInput").value = page.access_token;
                             logToScreen(`🎉 Tagumpay! Nakonekta sa Page: ${page.name}`);
-                            loadCustomerInbox(); // I-load agad ang inbox
+                            loadCustomerInbox(); // I-load agad ang inbox galing kay Meta
                         } else {
                             logToScreen("⚠️ Walang nakitang Page sa account mo.");
                         }
@@ -178,35 +180,65 @@
             }, {scope: 'pages_show_list, pages_messaging, pages_manage_metadata'});
         }
 
-        // Kunin ang mga nag-message galing sa Render Webhook / Supabase database natin
-        function loadCustomerInbox() {
-            logToScreen("Nire-refresh ang customer inbox...");
-            
-            // Note: Sa Render backend mo, gagawa tayo ng simpleng GET /api/customers endpoint 
-            // para ilista ang mga nag-message na PSID. Pansamantalang mockup muna ito:
-            const mockCustomers = [
-                { name: "Test User (Personal)", psid: "1029384756" }
-            ];
-
-            const inboxContainer = document.getElementById("inboxList");
-            inboxContainer.innerHTML = "";
-
-            if(mockCustomers.length === 0) {
-                inboxContainer.innerHTML = `<span style="font-size:12px; color:#64748b;">Walang bagong mensahe.</span>`;
+        // Direktang Kunin ang mga nag-message mula sa Meta Graph API (/me/conversations)
+        async function loadCustomerInbox() {
+            const token = document.getElementById("pageTokenInput").value.trim();
+            if (!token) {
+                alert("Paki-konekta muna ang Facebook account gamit ang Login & Go!");
                 return;
             }
 
-            mockCustomers.forEach(cust => {
-                const item = document.createElement("div");
-                item.className = "inbox-item";
-                item.innerHTML = `<span>💬 ${cust.name}</span> <span style="font-size:10px; color:#38bdf8;">Piliin</span>`;
-                item.onclick = function() {
-                    document.getElementById("psidInput").value = cust.psid;
-                    logToScreen(`Napili ang customer PSID: ${cust.psid}`);
-                };
-                inboxContainer.appendChild(item);
-            });
-            logToScreen("Na-load ang Inbox.");
+            logToScreen("Nire-refresh ang inbox mula kay Meta Graph API...");
+            const inboxContainer = document.getElementById("inboxList");
+            inboxContainer.innerHTML = `<span style="font-size:12px; color:#38bdf8;">Hinahanap ang mga nag-chat...</span>`;
+
+            // Graph API Endpoint para sa conversations at participants
+            const url = `https://graph.facebook.com/v26.0/me/conversations?fields=participants&access_token=${encodeURIComponent(token)}`;
+
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+
+                inboxContainer.innerHTML = "";
+
+                if (data.data && data.data.length > 0) {
+                    let customerCount = 0;
+
+                    data.data.forEach(conv => {
+                        if (conv.participants && conv.participants.data) {
+                            conv.participants.data.forEach(participant => {
+                                // Siguraduhing hindi ang Page ang nailalagay kundi ang kustomer
+                                if (participant.id !== window.activePageId) {
+                                    customerCount++;
+                                    const custName = participant.name || "Customer";
+                                    const custPsid = participant.id;
+
+                                    const item = document.createElement("div");
+                                    item.className = "inbox-item";
+                                    item.innerHTML = `<span>💬 ${custName}</span> <span style="font-size:10px; color:#38bdf8;">Piliin</span>`;
+                                    item.onclick = function() {
+                                        document.getElementById("psidInput").value = custPsid;
+                                        logToScreen(`Napili ang customer: ${custName}`);
+                                    };
+                                    inboxContainer.appendChild(item);
+                                }
+                            });
+                        }
+                    });
+
+                    if (customerCount === 0) {
+                        inboxContainer.innerHTML = `<span style="font-size:12px; color:#64748b;">Walang nakitang kustomer sa conversations.</span>`;
+                    } else {
+                        logToScreen(`✅ Matagumpay na na-load ang ${customerCount} kustomer galing kay Meta!`);
+                    }
+                } else {
+                    inboxContainer.innerHTML = `<span style="font-size:12px; color:#64748b;">Walang active conversations sa Page na ito.</span>`;
+                    logToScreen("⚠️ Walang nakitang data mula kay Meta.");
+                }
+            } catch (err) {
+                logToScreen(`❌ Error: ${err.message}`);
+                inboxContainer.innerHTML = `<span style="font-size:12px; color:#ef4444;">Nabigong makuha ang inbox.</span>`;
+            }
         }
 
         async function sendMessengerReply() {
@@ -239,7 +271,7 @@
                     logToScreen(`❌ Error kay Meta: ${JSON.stringify(result)}`);
                 }
             } catch (err) {
-                logToScreen(`⚠️ Error: ${err.message}`);
+                logToScreen(`⚠️ Network Error: ${err.message}`);
             }
         }
     </script>
