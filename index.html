@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="tl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ShareMap - Mini Messenger POS Inbox</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #0f172a;
+            color: #ffffff;
+            margin: 0;
+            padding: 15px;
+            display: flex;
+            justify-content: center;
+        }
+        .container {
+            background: #1e293b;
+            padding: 20px;
+            border-radius: 12px;
+            width: 100%;
+            max-width: 480px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+            box-sizing: border-box;
+        }
+        h2 { margin-top: 0; color: #38bdf8; font-size: 18px; text-align: center; }
+        .btn {
+            background-color: #0084FF;
+            color: white;
+            border: none;
+            padding: 12px;
+            border-radius: 6px;
+            font-weight: bold;
+            font-size: 14px;
+            width: 100%;
+            cursor: pointer;
+            margin-bottom: 10px;
+        }
+        .btn:hover { background-color: #006bce; }
+        .btn-success { background-color: #16a34a; }
+        .btn-success:hover { background-color: #15803d; }
+        .btn-secondary { background-color: #475569; font-size: 12px; padding: 8px; }
+        .form-group { margin-bottom: 12px; text-align: left; }
+        .form-group label { display: block; font-size: 12px; margin-bottom: 4px; color: #cbd5e1; }
+        .form-group input, .form-group textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #475569;
+            border-radius: 6px;
+            background-color: #0f172a;
+            color: #ffffff;
+            font-size: 14px;
+            box-sizing: border-box;
+            outline: none;
+        }
+        .inbox-box {
+            background-color: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 6px;
+            padding: 8px;
+            max-height: 110px;
+            overflow-y: auto;
+            margin-bottom: 12px;
+        }
+        .inbox-item {
+            padding: 6px 10px;
+            background: #1e293b;
+            margin-bottom: 4px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .inbox-item:hover { background: #334155; }
+        .log-box {
+            background-color: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 6px;
+            padding: 10px;
+            font-family: monospace;
+            font-size: 11px;
+            color: #38bdf8;
+            height: 90px;
+            overflow-y: auto;
+            word-break: break-all;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h2>🛍️ ShareMap POS Inbox</h2>
+
+        <!-- 1-Click Login & Go -->
+        <button class="btn" onclick="loginWithFacebook()">🔓 Login & Go (Auto Page Token)</button>
+
+        <div class="form-group">
+            <label>🔑 Active Page Access Token:</label>
+            <input type="text" id="pageTokenInput" placeholder="Nag-aabang sa login..." readonly>
+        </div>
+
+        <hr style="border:0; border-top:1px solid #334155; margin:12px 0;">
+
+        <!-- Customer Inbox List (Hindi na kailangan mag-type ng PSID!) -->
+        <div class="form-group">
+            <label>📥 Customer Inbox (Piliin ang nag-message):</label>
+            <div id="inboxList" class="inbox-box">
+                <span style="font-size:12px; color:#64748b;">Wala pang pumapasok na customer... Mag-chat ka muna sa Page.</span>
+            </div>
+            <button class="btn btn-secondary" onclick="loadCustomerInbox()">🔄 Refresh Inbox</button>
+        </div>
+
+        <div class="form-group">
+            <label>👤 Napiling Customer PSID:</label>
+            <input type="text" id="psidInput" placeholder="Kusang mapupuno rito kapag pinili sa inbox">
+        </div>
+
+        <div class="form-group">
+            <label>✍️ Mensahe / Reply ng Store:</label>
+            <textarea id="messageInput" rows="2" placeholder="I-type ang reply mo rito..."></textarea>
+        </div>
+
+        <button class="btn btn-success" onclick="sendMessengerReply()">📤 I-send ang Reply</button>
+
+        <div class="form-group" style="margin-top: 10px;">
+            <label>📜 Activity Log:</label>
+            <div id="logBox" class="log-box">Handa na ang system.</div>
+        </div>
+    </div>
+
+    <script>
+        const FACEBOOK_APP_ID = "1288382807701408"; 
+
+        window.fbAsyncInit = function() {
+            FB.init({
+                appId      : FACEBOOK_APP_ID,
+                cookie     : true,
+                xfbml      : true,
+                version    : 'v26.0'
+            });
+        };
+
+        (function(d, s, id){
+            var js, fjs = d.getElementsByTagName(s)[0];
+            if (d.getElementById(id)) {return;}
+            js = d.createElement(s); js.id = id;
+            js.src = "https://connect.facebook.net/en_US/sdk.js";
+            fjs.parentNode.insertBefore(js, fjs);
+        }(script = document, 'script', 'facebook-jssdk'));
+
+        function logToScreen(text) {
+            const box = document.getElementById("logBox");
+            box.innerHTML += `> ${text}<br>`;
+            box.scrollTop = box.scrollHeight;
+        }
+
+        // 1-Click Login & Go
+        function loginWithFacebook() {
+            logToScreen("Kumokonekta kay Meta...");
+            FB.login(function(response) {
+                if (response.authResponse) {
+                    logToScreen("✅ Na-grant ang access! Kinukuha ang Page Token...");
+                    FB.api('/me/accounts', function(accountsResponse) {
+                        if (accountsResponse && accountsResponse.data && accountsResponse.data.length > 0) {
+                            const page = accountsResponse.data[0];
+                            document.getElementById("pageTokenInput").value = page.access_token;
+                            logToScreen(`🎉 Tagumpay! Nakonekta sa Page: ${page.name}`);
+                            loadCustomerInbox(); // I-load agad ang inbox
+                        } else {
+                            logToScreen("⚠️ Walang nakitang Page sa account mo.");
+                        }
+                    });
+                } else {
+                    logToScreen("❌ Kinansela ang login.");
+                }
+            }, {scope: 'pages_show_list, pages_messaging, pages_manage_metadata'});
+        }
+
+        // Kunin ang mga nag-message galing sa Render Webhook / Supabase database natin
+        function loadCustomerInbox() {
+            logToScreen("Nire-refresh ang customer inbox...");
+            
+            // Note: Sa Render backend mo, gagawa tayo ng simpleng GET /api/customers endpoint 
+            // para ilista ang mga nag-message na PSID. Pansamantalang mockup muna ito:
+            const mockCustomers = [
+                { name: "Test User (Personal)", psid: "1029384756" }
+            ];
+
+            const inboxContainer = document.getElementById("inboxList");
+            inboxContainer.innerHTML = "";
+
+            if(mockCustomers.length === 0) {
+                inboxContainer.innerHTML = `<span style="font-size:12px; color:#64748b;">Walang bagong mensahe.</span>`;
+                return;
+            }
+
+            mockCustomers.forEach(cust => {
+                const item = document.createElement("div");
+                item.className = "inbox-item";
+                item.innerHTML = `<span>💬 ${cust.name}</span> <span style="font-size:10px; color:#38bdf8;">Piliin</span>`;
+                item.onclick = function() {
+                    document.getElementById("psidInput").value = cust.psid;
+                    logToScreen(`Napili ang customer PSID: ${cust.psid}`);
+                };
+                inboxContainer.appendChild(item);
+            });
+            logToScreen("Na-load ang Inbox.");
+        }
+
+        async function sendMessengerReply() {
+            const token = document.getElementById("pageTokenInput").value.trim();
+            const psid = document.getElementById("psidInput").value.trim();
+            const messageText = document.getElementById("messageInput").value.trim();
+
+            if (!token || !psid || !messageText) {
+                alert("Pakipunan ang Token, piliin ang Customer sa Inbox, at ilagay ang mensahe!");
+                return;
+            }
+
+            logToScreen(`Ipinapadala ang reply kay PSID: ${psid}...`);
+
+            const url = `https://graph.facebook.com/v26.0/me/messages?access_token=${encodeURIComponent(token)}`;
+            const payload = { recipient: { id: psid }, message: { text: messageText } };
+
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const result = await response.json();
+
+                if (result.recipient_id && result.message_id) {
+                    logToScreen(`✅ Naipadala na ang mensahe! ID: ${result.message_id}`);
+                    document.getElementById("messageInput").value = "";
+                } else {
+                    logToScreen(`❌ Error kay Meta: ${JSON.stringify(result)}`);
+                }
+            } catch (err) {
+                logToScreen(`⚠️ Error: ${err.message}`);
+            }
+        }
+    </script>
+</body>
+</html>
